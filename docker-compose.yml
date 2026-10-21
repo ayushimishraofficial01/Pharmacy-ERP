@@ -1,0 +1,56 @@
+# One-command run of the whole merged stack. This does NOT replace
+# actually testing the app — it's the fastest path to a real MongoDB and a
+# real running server/frontend, which is the verification this merge has
+# been missing (see MERGE_NOTES.md). It does not require npm install on
+# your host machine at all — everything happens inside the containers.
+#
+# Usage:
+#   cp .env.example .env   # then fill in JWT_SECRET (this file, not backend/.env)
+#   docker compose up --build
+# Then open http://localhost:5173 and use the Register page to create your
+# first organization.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - '5000:5000'
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/pharmacy-erp
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in a .env file next to this docker-compose.yml, at least 32 random characters}
+      JWT_EXPIRES_IN: 8h
+      PORT: 5000
+      NODE_ENV: production
+      FRONTEND_URL: http://localhost:5173
+      AI_ENABLED: 'false'
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:5000/api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '5173:5173'
+
+volumes:
+  mongo_data:
